@@ -1,0 +1,10 @@
+body{margin:0;font-family:Arial,sans-serif;background:#f4f6fb;color:#1f2937}main{max-width:1100px;margin:30px auto;padding:20px}h1{text-align:center}.card{background:white;padding:18px;margin:16px 0;border-radius:14px;box-shadow:0 4px 14px #0001}input,textarea{width:100%;box-sizing:border-box;margin:8px 0;padding:10px;border:1px solid #ccc;border-radius:8px}textarea{min-height:80px}button{margin:4px;padding:9px 12px;border:0;border-radius:8px;background:#2563eb;color:white;cursor:pointer}.danger{background:#dc2626}table{width:100%;border-collapse:collapse;background:white;border-radius:14px;overflow:hidden;box-shadow:0 4px 14px #0001}th,td{border-bottom:1px solid #e5e7eb;padding:12px;text-align:left;vertical-align:top}th{background:#e5e7eb}.details{border-left:5px solid #2563eb}
+
+.socket-status {
+  display: inline-block;
+  margin: 0 0 16px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #e8f0ff;
+  font-weight: 600;
+}
