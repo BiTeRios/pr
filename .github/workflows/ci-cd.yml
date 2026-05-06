@@ -1,0 +1,154 @@
+name: ToDo Docker CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-test-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show project structure
+        run: |
+          ls -la
+          ls -la backend
+          ls -la frontend
+          ls -la db
+
+      - name: Build backend image
+        run: docker build -t todo_backend ./backend
+
+      - name: Build frontend image
+        run: docker build -t todo_frontend ./frontend
+
+      - name: Create Docker network
+        run: docker network create todo_net
+
+      - name: Run PostgreSQL container
+        run: |
+          docker run -d \
+            --name todo_db \
+            --network todo_net \
+            -e POSTGRES_DB=todo_db \
+            -e POSTGRES_USER=todo_user \
+            -e POSTGRES_PASSWORD=todo_password \
+            -v ${{ github.workspace }}/db/init.sql:/docker-entrypoint-initdb.d/init.sql \
+            -p 5432:5432 \
+            postgres:16
+
+      - name: Run GreenMail container
+        run: |
+          docker run -d \
+            --name todo_mail \
+            --network todo_net \
+            -e GREENMAIL_OPTS="-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=user:password@localhost" \
+            -p 3025:3025 \
+            -p 3110:3110 \
+            -p 3143:3143 \
+            greenmail/standalone:2.1.3
+
+      - name: Wait for PostgreSQL
+        run: |
+          echo "Waiting for PostgreSQL..."
+          sleep 15
+          docker logs todo_db
+
+      - name: Run backend container
+        run: |
+          docker run -d \
+            --name todo_backend \
+            --network todo_net \
+            -e DATABASE_URL=postgresql+psycopg2://todo_user:todo_password@todo_db:5432/todo_db \
+            -e SMTP_HOST=todo_mail \
+            -e SMTP_PORT=3025 \
+            -e IMAP_HOST=todo_mail \
+            -e IMAP_PORT=3143 \
+            -e POP3_HOST=todo_mail \
+            -e POP3_PORT=3110 \
+            -e MAIL_FROM=user@localhost \
+            -e MAIL_PASSWORD=password \
+            -p 8000:8000 \
+            todo_backend
+
+      - name: Run frontend container
+        run: |
+          docker run -d \
+            --name todo_frontend \
+            --network todo_net \
+            -e VITE_API_URL=http://localhost:8000 \
+            -p 5173:5173 \
+            todo_frontend
+
+      - name: Wait for backend and frontend
+        run: |
+          echo "Waiting for services..."
+          sleep 20
+          docker ps
+          docker logs todo_backend
+          docker logs todo_frontend
+
+      - name: Test backend health
+        run: curl -f http://localhost:8000/health
+
+      - name: Test get tasks
+        run: curl -f http://localhost:8000/tasks
+
+      - name: Test create task
+        run: |
+          curl -f -X POST http://localhost:8000/tasks \
+            -H "Content-Type: application/json" \
+            -d '{"title":"CI/CD test task","description":"Created from GitHub Actions"}'
+
+      - name: Test get task by ID
+        run: curl -f http://localhost:8000/tasks/1
+
+      - name: Test update task
+        run: |
+          curl -f -X PUT http://localhost:8000/tasks/1 \
+            -H "Content-Type: application/json" \
+            -d '{"title":"Updated CI/CD task","description":"Updated from workflow","completed":true}'
+
+      - name: Test send email
+        run: |
+          curl -f -X POST http://localhost:8000/tasks/1/email \
+            -H "Content-Type: application/json" \
+            -d '{"to":"user@localhost"}'
+
+      - name: Test IMAP
+        run: curl -f "http://localhost:8000/mail/imap/check?email=user@localhost"
+
+      - name: Test POP3
+        run: curl -f "http://localhost:8000/mail/pop3/check?email=user@localhost"
+
+      - name: Test delete task
+        run: curl -f -X DELETE http://localhost:8000/tasks/1
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag Docker images
+        run: |
+          docker tag todo_backend ${{ secrets.DOCKERHUB_USERNAME }}/todo_backend:latest
+          docker tag todo_frontend ${{ secrets.DOCKERHUB_USERNAME }}/todo_frontend:latest
+
+      - name: Push Docker images to Docker Hub
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/todo_backend:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/todo_frontend:latest
+
+      - name: Cleanup containers and images
+        if: always()
+        run: |
+          docker rm -f todo_frontend todo_backend todo_db todo_mail || true
+          docker network rm todo_net || true
+          docker rmi todo_backend todo_frontend || true
